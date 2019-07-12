@@ -420,11 +420,9 @@ After your improvements document the image sizes again. The size difference may 
 
 ### 3.2 ### 
 
-We've used the youtube-dl a lot in the material but I believe that we should expand our horizons.
-
 Create a new Dockerfile for [yle-dl](https://aajanki.github.io/yle-dl/) and optimize it. 
 
-Use your application to download something to a volume without breaking the [YLE Terms of Service](https://ohjeet.areena.yle.fi/hc/fi/articles/115002969969-Yle-Areenan-k%C3%A4ytt%C3%B6ehdot)
+To make sure your implementation works you should be able to download something to a volume without breaking the [YLE Terms of Service](https://ohjeet.areena.yle.fi/hc/fi/articles/115002969969-Yle-Areenan-k%C3%A4ytt%C3%B6ehdot) For english attendees: "You have no right to download anything from Areena (for example to your own computer), except downloadable content such as podcasts"
 
 This exercise was created by [Terho Uotila](https://github.com/qzuw)
 

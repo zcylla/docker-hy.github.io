@@ -323,7 +323,7 @@ FROM ubuntu:16.04
 WORKDIR /mydir 
 RUN touch hello.txt 
 COPY local.txt . 
-RUN wget http://example.com/index.html 
+RUN curl -O http://example.com/index.html 
 CMD ["/bin/bash"]
 ``` 
 
@@ -343,21 +343,21 @@ This fails in the `COPY`, because the `local.txt` doesn't exist. Fix that and bu
 
 Before fixing the next error, notice how all steps that modify the image will say ` ---> Using cache` - this is because the Docker daemon caches all the operations for speed. Changing any build directive will invalidate all the caches **after** that line. 
 
-Now we will find out that `wget` doesn't exist in the Ubuntu base image.  We'll need to add it with `apt-get` as this is Ubuntu. But, if we just add: 
+Now we will find out that `curl` doesn't exist in the Ubuntu base image.  We'll need to add it with `apt-get` as this is Ubuntu. But, if we just add: 
 
-    RUN apt-get install -y wget  
+    RUN apt-get install -y curl  
 
 It will fail because the apt sources are not part of the image to bring down the size (and they would be old anyway). When we add lines 
 
     RUN apt-get update 
-    RUN apt-get install -y wget 
+    RUN apt-get install -y curl 
 
 
 the image should build nicely and at the end it will say something like `Successfully built 66b527252f32`, where the `66b527252f32` is a random name for our **image**. 
 
 Before running our image we have a looming problem ahead of us: because `apt-get update` is run in a separate step that is cached. If we add another package in the `apt-get install -y` line some other day, the sources might have changed and thus the installation will fail. When something depends on another command, it's best practise to run them together, like this: 
 
-    RUN apt-get update && apt-get install -y wget 
+    RUN apt-get update && apt-get install -y curl 
 
 We don't have to give a command (to be run in the container) after the image since the ubuntu base image sets it to `bash` on the last line.
 
@@ -365,11 +365,11 @@ We don't have to give a command (to be run in the container) after the image sin
 FROM ubuntu:16.04 
 
 WORKDIR /mydir 
-RUN apt-get update && apt-get install -y wget 
+RUN apt-get update && apt-get install -y curl 
 
 RUN touch hello.txt 
 COPY local.txt . 
-RUN wget http://example.com/index.html 
+RUN curl -O http://example.com/index.html 
 ```
 
 The random name for our image is also not ideal, because now we need to separately `docker tag 66b527252f32 myfirst` to have a sensible name for it, so let's build it again to also tag it: 
@@ -414,51 +414,59 @@ And as expected, our `manually.txt` file is now in the image.
 
 ### Bigger and more complex image
 
-Now let's start moving towards a more meaningful image. `youtube-dl` a program that downloads youtube videos <https://rg3.github.io/youtube-dl/download.html> Let's add it to the image - but this time instead of doing it directly in `Dockerfile`, let's try another approach that is sometimes easier than our current process where we add things to it and try to see if it builds. This time we'll open up an interactive session and test stuff beforehand "storing" it in our Dockerfile. By following the youtube-dl install instructions blindly we'll see that... 
+Now let's start moving towards a more meaningful image. `chrome` Let's add it to the image - but this time instead of doing it directly in `Dockerfile`, let's try another approach that is sometimes easier than our current process where we add things to it and try to see if it builds. This time we'll open up an interactive session and test stuff beforehand "storing" it in our Dockerfile. Since we cannot simply go to the website instructions for downloading are [here](https://www.ubuntuupdates.org/ppa/google_chrome) By following the chrome install instructions for terminal blindly we'll see that... 
 
     $ docker run -it myfirst 
-      root@8c587232a608:/mydir# sudo curl -L https://yt-dl.org/downloads/latest/youtube-dl -o /usr/local/bin/youtube-dl 
+      root@8c587232a608:/mydir# wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add - 
       bash: sudo: command not found 
  
 ..`sudo` is not installed, but since we are `root` we don't need it now, so let's try again without... 
 
-    root@8c587232a608:/mydir# curl -L https://yt-dl.org/downloads/latest/youtube-dl -o /usr/local/bin/youtube-dl 
-    bash: curl: command not found 
+    root@8c587232a608:/mydir# wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+    bash: wget: command not found 
 
-..and we see that curl is not installed either - we could just revert to use `wget`, but as an exercise, let's add `curl` with `apt-get` since we already have the apt sources in our image (that hopefully are still valid) 
+..and we see that curl is not installed either - we could just use `curl -O`, but as an exercise, let's add `wget` with `apt-get` since we already have the apt sources in our image (that hopefully are still valid) 
 
+    $ apt-get install -y wget
+    $ wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
 
-    $ apt-get install -y curl 
-    $ curl -L https://yt-dl.org/downloads/latest/youtube-dl -o /usr/local/bin/youtube-dl 
+..and we get a helpful message that we need `gnupg`. After that following the instructions is a breeze, just remove `sudo` as we're already root.
 
-Then we'll add permissions and run it: 
+    $ apt-get install -y gnupg2
+    $ wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+    $ sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
+    $ apt-get update
 
-    $ chmod a+rx /usr/local/bin/youtube-dl 
-    $ youtube-dl
-      /usr/bin/env: 'python': No such file or directory 
+And for the package name let's choose `google-chrome-stable`
 
-Okay - On the top of the `youtube-dl` download page we'll notice that 
+    $ apt-get install -y google-chrome-stable
 
-> Remember youtube-dl requires Python version 2.6, 2.7, or 3.2+ to work except for Windows exe. 
+Then we'll be able to run it: 
 
-So let's add python 
+    $ google-chrome-stable
+      [3652:3652:0711/091540.711945:ERROR:zygote_host_impl_linux.cc(89)] Running as root without --no-sandbox is not supported. See https://crbug.com/638180.
 
-    $ apt-get install -y python 
+Okay - as we're root we cannot run without `--no-sandbox` so lets add that. More information on the commands we're using [here](https://developers.google.com/web/updates/2017/04/headless-chrome) And let's run it again 
 
-And let's run it again 
+    $ google-chrome-stable --no-sandbox 
+    [3591:3591:0712/140226.370871:ERROR:browser_dm_token_storage_linux.cc(101)] Error: /etc/machine-id contains 0 characters (32 were expected).
 
-    $ youtube-dl 
-
-      WARNING: Assuming --restrict-filenames since file system encoding cannot encode all characters. Set the LC_ALL environment variable to fix this. 
-      Usage: youtube-dl [OPTIONS] URL [URL...] 
-
-      youtube-dl: error: You must provide at least one URL. 
-      Type youtube-dl --help to see a list of all options. 
+    (google-chrome-stable:3591): Gtk-WARNING **: 14:02:26.378: cannot open display: 
+    root@170e69559e91:/mydir# [0712/140226.389961:ERROR:nacl_helper_linux.cc(310)] NaCl helper process running without  a sandbox!
+    Most likely you need to configure your SUID sandbox correctly
  
+As we're in a container it makes sense that it `cannot open display`. Let's run the chrome as headless and without gpu:
 
-It works (we just need to give an URL), but we notice that it outputs a warning about `LC_ALL`. In a regular Ubuntu desktop/server install the localization settings are (usually) set, but in this image they are not set, as we can see by running `env` in our container. To fix this without installing additional locales, see this: https://stackoverflow.com/a/41648500 
+    $ google-chrome-stable --no-sandbox --headless --disable-gpu
+    [0712/140343.620578:ERROR:browser_process_sub_thread.cc(221)] Waited 3 ms for network service
 
-    $ LC_ALL=C.UTF-8 youtube-dl 
+It works but the warning is inconvinient so for the fix we'll use `--disable-features=NetworkService` from [stackoverflow](https://superuser.com/questions/1447761/google-chrome-headless-disable-gpu-gives-a-network-error-on-centos)
+
+    $ google-chrome-stable --no-sandbox --headless --disable-gpu --disable-features=NetworkService
+
+It works but there's no output.
+
+## ATM HERE ##
 
 And it works! Let's persist it for our session and try downloading a video: 
 

@@ -528,12 +528,19 @@ In the shell form the command is provided as a string without brackets. In the e
 |ENTRYPOINT /bin/ping -c 3 <br> CMD ["localhost"] | /bin/sh -c '/bin/ping -c 3' localhost |
 |ENTRYPOINT ["/bin/ping","-c","3"] <br> CMD ["localhost"] | /bin/ping -c 3 localhost | 
 
+This means that for our purposes we could join all of the flags like this:
+
+    ENTRYPOINT ["google-chrome-stable", "--no-sandbox", "--headless", "--disable-gpu", "--disable-features=NetworkService", "--screenshot"]
+
+and we can run it with just
+
+    docker run web-screenshot https://www.helsinki.fi
 
 Now we have two problems: 
 
-- Minor: Our container build process creates many layers resulting in increased image size 
+- Minor: Our container build process creates many layers resulting in increased image size
 
-- Major: The downloaded files stay in the container 
+- Major: The downloaded files stay in the container
 
 Let's fix the major issue first. We'll look at the minor issue in part 3.
 
@@ -564,7 +571,7 @@ And now we have our file locally. This doesn't really fix our issue, so let's co
 
 By **bind mounting** a host (our machine) folder to the container we can get the file directly to our machine. Let's start another run with `-v` option, that requires an absolute path. We mount our current folder as `/mydir` in our container, overwriting everything that we have put in that folder in our Dockerfile. 
 
-    $ docker run -v $(pwd):/mydir web-screenshot --no-sandbox --headless --disable-gpu --disable-features=NetworkService --screenshot https://www.helsinki.fi/en
+    $ docker run -v $(pwd):/mydir web-screenshot https://www.helsinki.fi/en
 
 > Note: the Docker for Mac/Win has some magic so that the directories from our host become available for the `moby` virtual machine allowing our command to work as it would on a Linux machine. 
 
@@ -574,11 +581,21 @@ In our web-screenshot we wanted to mount the whole directory since the files are
 
 **[Do exercise 1.8](/exercises/#18)**
 
-## ATM AROUND HERE, ALSO TEACH --mount HERE ##
+Since browsers look at the system datetime for information our screencaps might have data that isn't correct for our personal usage. Let's take a screencap of `https://everytimezone.com/` and we can see that this is true and that Docker default to UTC. To fix this let's add an environment variable while running:
+
+    docker run -v $(pwd):/mydir -e TZ=Europe/Helsinki webss-final https://everytimezone.com/
+
+Looks good but it doesn't make much sense to write it each time, lets move it to the Dockerfile as ENV.
+
+    ...
+    ENV TZ=Europe/Helsinki
+
+    ENTRYPOINT ["google-chrome-stable", "--no-sandbox", "--headless", "--disable-gpu", "--disable-features=NetworkService", "--screenshot"]
+
 
 ### Allowing external connections into containers
 
-The details on how programs communicate are not detailed in this course. Courses on Operating Systems and Networking courses explain these. On this course you only need to know the following simplified basics:
+The details on how programs communicate are not part of this course. Courses on Operating Systems and Networking courses explain these. On this course you only need to know the following simplified basics:
 - Sending messages: Programs can send messages to [URL](https://en.wikipedia.org/wiki/URL) addresses such as this: http://127.0.0.1:3000 where http is the [_protocol_](https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol), 127.0.0.1 is a ip address, and and 3000 is a [_port_](https://en.wikipedia.org/wiki/Port_(computer_networking)). Note the ip part could also be a [_hostname_](https://en.wikipedia.org/wiki/Hostname): 127.0.0.1 is always also named [_localhost_](https://en.wikipedia.org/wiki/Localhost) so instead you could use http://localhost:3000.
 - Receiving messages: Programs can be assigned to listen to any available port. If a program is listening for traffic on port 3000 and a message is sent to that port it will receive it (and depending on the message process it).
 - note that the address _127.0.0.1_ and hostname _localhost_ are special ones, they refer to the machine or container itself, so if you are on a container and send message to _localhost_, the target is the same container, simillarly if you are running a software in your laptop (outside of containers) and send message to _localhost_, the target is the laptop 
@@ -627,15 +644,15 @@ You can also limit connections to certain protocol only, in this case udp by add
 
 Go to <https://hub.docker.com/> to create an account. You can configure docker hub to build your images for you, but using `push` works as well.
 
-Lets publish the youtube-dl image. Log in and navigate to your [dashboard](https://hub.docker.com/) and press Create Repository. The namespace can be either your personal account or an organization account. For now lets stick to personal accounts and write something descriptive such as youtube-dl to repository name. We'll need to remember it in part 2.
+Lets publish the web-screenshot image. Log in and navigate to your [dashboard](https://hub.docker.com/) and press Create Repository. The namespace can be either your personal account or an organization account. For now lets stick to personal accounts and write something descriptive such as web-screenshot to repository name. We'll need to remember it in part 2.
 
-Set visibility to public. Free accounts have access to 1 free private repository.
+Set visibility to public. Free accounts have access to 1 free private repository, let's not waste it here.
 
 > In the past organization accounts had 0 free private repositories and accounts can be converted into organization accounts. This would lead to 1/0 private repositories for organization accounts if account had private repository before conversion.
 
 Next we need to rename the image:
 
-`docker tag youtube-dl <username>/<repositoryname>`
+`docker tag web-screenshot <username>/<repositoryname>`
 
 And the last thing we need is to authenticate our push by logging in:
 
@@ -655,6 +672,6 @@ This meant that we had to install almost everything manually, either from the co
 
 The process of dockerizing the applications meant a bit of configuration on our part, but now that we've done it and built the image anyone can pick up and run the application; no possible dependency or versioning issues.
 
-Understanding the architecture and the technologies used is also part of making correct choices with the setup. This lead us to read the REAMEs and documentation of the software involved in the setup, not just Docker. Fortunately in real life it's often us who are developing and creating the Dockerfile.
+Understanding the architecture and the technologies used is also part of making correct choices with the setup. This lead us to read the READMEs and documentation of the software involved in the setup, not just Docker. Fortunately in real life it's often us who are developing and creating the Dockerfile.
 
 The starting and stopping of containers is a bit annoying, not to mention running two applications at the same time. If only there was some way, a tool, to make it simpler... to [compose](/part2).

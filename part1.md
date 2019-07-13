@@ -455,77 +455,66 @@ Okay - as we're root we cannot run without `--no-sandbox` so lets add that. More
     root@170e69559e91:/mydir# [0712/140226.389961:ERROR:nacl_helper_linux.cc(310)] NaCl helper process running without  a sandbox!
     Most likely you need to configure your SUID sandbox correctly
  
-As we're in a container it makes sense that it `cannot open display`. Let's run the chrome as headless and without gpu:
+As we're in a container it makes sense that it cannot open display at this point. Let's run the chrome as headless:
 
-    $ google-chrome-stable --no-sandbox --headless --disable-gpu
+    $ google-chrome-stable --no-sandbox --headless
+    [0713/094755.631895:ERROR:command_buffer_proxy_impl.cc(126)] ContextResult::kTransientFailure: Failed to send GpuChannelMsg_CreateCommandBuffer.
     [0712/140343.620578:ERROR:browser_process_sub_thread.cc(221)] Waited 3 ms for network service
 
-It works but the warning is inconvinient so for the fix we'll use `--disable-features=NetworkService` from [stackoverflow](https://superuser.com/questions/1447761/google-chrome-headless-disable-gpu-gives-a-network-error-on-centos)
+It works, but the warnings are inconvinient so for the fix we'll use `--disable-gpu` and `--disable-features=NetworkService` from [stackoverflow](https://superuser.com/questions/1447761/google-chrome-headless-disable-gpu-gives-a-network-error-on-centos)
 
     $ google-chrome-stable --no-sandbox --headless --disable-gpu --disable-features=NetworkService
 
-It works but there's no output.
+Silence finally. Now lets to open a website and save a picture of the page!
 
-## ATM HERE ##
+    $ google-chrome-stable --no-sandbox --headless --disable-gpu --disable-features=NetworkService --screenshot https://www.helsinki.fi/en
 
-And it works! Let's persist it for our session and try downloading a video: 
+The error before output indicates that chrome wants to use audio output, but let's ignore the error as we can't capture audio in a screenshot anyway. More on how to get audio output from container at [stackoverflow](https://stackoverflow.com/questions/41083436/how-to-play-sound-in-a-docker-container)
 
-    $ export LC_ALL=C.UTF-8 
-    $ youtube-dl https://www.youtube.com/watch?v=420UIn01VVc
+    ...
+    [0713/095049.430568:INFO:headless_shell.cc(536)] Written to file screenshot.png.
+    $ ls
+    screenshot.png
 
 So now when we know what do, let's add these to the bottom of our `Dockerfile` - by adding the instructions to the bottom we preserve our cached layers - this is handy practise to speed up creating the initial version of a Dockerfile when it has time consuming operations like downloads. 
 
     ... 
-    RUN apt-get install -y curl python 
-    RUN curl -L https://yt-dl.org/downloads/latest/youtube-dl -o /usr/local/bin/youtube-dl 
-    RUN chmod a+x /usr/local/bin/youtube-dl 
-    ENV LC_ALL=C.UTF-8 
-    CMD ["/usr/local/bin/youtube-dl"] 
+    RUN apt-get install -y gnupg2
+    RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+    RUN sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
+    RUN apt-get update
+    RUN apt-get install -y google-chrome-stable
 
-- Instead of using `RUN export LC_ALL=C.UTF-8` we'll store the environment directly in the image with ENV 
+    CMD ["google-chrome-stable"]
 
-- We'll also override `bash` as our image command (set on the base image) with `youtube-dl` itself. This won't work, but let's see why. 
+- We'll override `bash` as our image command (set on the base image) with `google-chrome-stable` itself. This won't work as expected, but let's see why. 
 
-When we build this as `youtube-dl` 
+When we build this as `web-screenshot` 
 
-    $ docker build -t youtube-dl . 
+    $ docker build -t web-screenshot . 
 
 And run it: 
 
-    $ docker run youtube-dl 
+    $ docker run web-screenshot
+      [1:1:0713/095754.840937:ERROR:zygote_host_impl_linux.cc(89)] Running as root without --no-sandbox is not supported. See https://crbug.com/638180.
 
-      Usage: youtube-dl [OPTIONS] URL [URL...] 
+The obvious fix would be to add the flags but
 
-      youtube-dl: error: You must provide at least one URL. 
+    $ docker run web-screenshot --no-sandbox
+    docker: Error response from daemon: OCI runtime create failed: container_linux.go:344: starting container process caused "exec: \"--no-sandbox\": executable file not found in $PATH": unknown.
 
-      Type youtube-dl --help to see a list of all options. 
+Now `--no-sandbox` became the command (`CMD`). Luckily we have another way to do this: we can use `ENTRYPOINT` to define the main executable and then docker will combine our run arguments for it.
 
-
-So far so good, but now the natural way to use this image would be to give the URL as an argument: 
-
-    $ docker run youtube-dl http://www.youtube.com 
-
-      /usr/local/bin/docker: Error response from daemon: OCI runtime create failed: container_linux.go:296: starting container process caused "exec: \"http://www.youtube.com\": stat http://www.youtube.com: no such file or directory": unknown. 
-
-      ERRO[0001] error waiting for container: context canceled 
-
-Now our URL became the command (`CMD`). Luckily we have another way to do this: we can use `ENTRYPOINT` to define the main executable and then docker will combine our run arguments for it. 
-
-    ENTRYPOINT ["/usr/local/bin/youtube-dl"] 
+    ENTRYPOINT ["google-chrome-stable"] 
 
 And now it works like it should: 
 
-    $ docker build -t youtube-dl . 
+    $ docker build -t web-screenshot . 
+    $ docker run web-screenshot --no-sandbox --headless --disable-gpu --disable-features=NetworkService --screenshot https://www.helsinki.fi/en
+    ...
+    [0713/101929.685161:INFO:headless_shell.cc(536)] Written to file screenshot.png.
 
-    $ docker run youtube-dl https://www.youtube.com/watch?v=420UIn01VVc 
-
-      [youtube] UFLCdmfGs7E: Downloading webpage 
-      [youtube] UFLCdmfGs7E: Downloading video info webpage 
-      [youtube] UFLCdmfGs7E: Extracting video information 
-      [download] Destination: Short introduction to Docker (Scribe)-UFLCdmfGs7E.mp4 
-      [download] 100% of 3.02MiB in 00:0072MiB/s ETA 00:003 
-
-`ENTRYPOINT` vs `CMD` can be confusing - in a properly set up image such as our youtube-dl the command represents an argument list for the entrypoint. By default entrypoint is set as `/bin/sh` and this is passed if no entrypoint is set. This is why giving path to a script file as CMD works: you're giving the file as a parameter to `/bin/sh`.
+`ENTRYPOINT` vs `CMD` can be confusing - in a properly set up image such as our web-screenshot the command represents an argument list for the entrypoint. By default entrypoint is set as `/bin/sh` and this is passed if no entrypoint is set. This is why giving path to a script file as CMD works: you're giving the file as a parameter to `/bin/sh`.
 
 In addition there are two ways to set them: **exec** form and **shell** form. We've been using the exec form where the command itself is executed. In shell form the command that is executed is wrapped with `/bin/sh -c` - it's useful when you need to evaluate environment variables in the command like `$MYSQL_PASSWORD` or similar. 
 
@@ -552,25 +541,22 @@ By inspecting `docker ps -a` we can see all our previous runs. When we filter th
 
     $ docker ps -a --last 3 
 
-      CONTAINER ID        IMAGE               COMMAND                   CREATED                  STATUS                          PORTS               NAMES 
-
-    be9fdbcafb23        youtube-dl          "/usr/local/bin/yout…"    Less than a second ago   Exited (0) About a minute ago                       determined_elion 
-
-    b61e4029f997        f2210c2591a1        "/bin/sh -c \"/usr/lo…"   Less than a second ago   Exited (2) About a minute ago                       vigorous_bardeen 
-
-    326bb4f5af1e        f2210c2591a1        "/bin/sh -c \"/usr/lo…"   About a minute ago       Exited (2) 3 minutes ago                            hardcore_carson 
+    CONTAINER ID        IMAGE               COMMAND                  CREATED                STATUS                              PORTS       NAMES 
+    be9fdbcafb23        web-screenshot      "google-chrome-stabl…"   9 seconds ago          Exited (0) Less than a second ago               determined_elion 
+    363f0716b6eb        e38e38428a5d        "--no-sandbox --head…"   56 seconds ago         Created                                         adoring_colden
+    e8b71e4f784c        e38e38428a5d        "--no-sandbox"           19 minutes ago         Created                                         relaxed_dijkstra
 
  
 We'll see that the last container was `be9fdbcafb23` or `determined_elion` for us humans. 
 
     $ docker diff determined_elion 
-
-      C /mydir 
-      A /mydir/Short introduction to Docker (Scribe)-UFLCdmfGs7E.mp4 
+      ...
+      C /mydir
+      A /mydir/screenshot.png
 
 Let's try `docker cp` command to copy the file (notice the quotes because of our filename that has spaces) 
 
-    $ docker cp "determined_elion://mydir/Short introduction to Docker (Scribe)-UFLCdmfGs7E.mp4" . 
+    $ docker cp determined_elion:/mydir/screenshot.png . 
 
 And now we have our file locally. This doesn't really fix our issue, so let's continue: 
 
@@ -578,15 +564,17 @@ And now we have our file locally. This doesn't really fix our issue, so let's co
 
 By **bind mounting** a host (our machine) folder to the container we can get the file directly to our machine. Let's start another run with `-v` option, that requires an absolute path. We mount our current folder as `/mydir` in our container, overwriting everything that we have put in that folder in our Dockerfile. 
 
-    $ docker run -v $(pwd):/mydir youtube-dl https://www.youtube.com/watch?v=420UIn01VVc
+    $ docker run -v $(pwd):/mydir web-screenshot --no-sandbox --headless --disable-gpu --disable-features=NetworkService --screenshot https://www.helsinki.fi/en
 
 > Note: the Docker for Mac/Win has some magic so that the directories from our host become available for the `moby` virtual machine allowing our command to work as it would on a Linux machine. 
 
 So a volume is simply a folder (or a file) that is shared between the host machine and the container. If a file in volume is modified by a program that's running inside the container the changes are also saved from destruction when the container is shut down as the file exists on the host machine. This is the main use for volumes as otherwise all of the files wouldn't be accessible when restarting the container. Volumes also can be used to share files between containers and run programs that are able to load changed files.
 
-In our youtube-dl we wanted to mount the whole directory since the files are fairly randomly named. If we wish to create a volume with only a single file we could also do that by pointing to it. For example `-v $(pwd)/material.md:/mydir/material.md` this way we could edit the material.md locally and have it change in the container (and vice versa). Note also that `-v` creates a directory if the file does not exist.
+In our web-screenshot we wanted to mount the whole directory since the files are fairly randomly named. If we wish to create a volume with only a single file we could also do that by pointing to it. For example `-v $(pwd)/material.md:/mydir/material.md` this way we could edit the material.md locally and have it change in the container (and vice versa). Note also that `-v` creates a directory if the file does not exist.
 
 **[Do exercise 1.8](/exercises/#18)**
+
+## ATM AROUND HERE, ALSO TEACH --mount HERE ##
 
 ### Allowing external connections into containers
 

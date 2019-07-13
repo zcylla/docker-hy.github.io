@@ -99,9 +99,15 @@ This time return the command you used to start process and the command(s) you us
 
 Create a Dockerfile that starts with `FROM devopsdockeruh/overwrite_cmd_exercise` and works only as a clock.
 
-The developer has poorly documented how the application works. Passing flags will open different functionalities, but we'd like to create a simplified version of it.
+The developer has poorly documented how the application works. Passing flags will open different functionalities, but we'd like to create a simplified version of it. Testing how the application works and experimenting is a great way to get started.
 
-Add a CMD line to the Dockerfile and tag it as "docker-clock" so that `docker run docker-clock` starts the application and the clock output.
+Add a CMD line to the Dockerfile and tag it as "docker-clock" so that `docker run docker-clock` starts the application and the clock output. So the final Dockefile should look something like this:
+
+```
+FROM devopsdockeruh/overwrite_cmd_exercise
+
+CMD ????
+```
 
 ### 1.7 ### 
 

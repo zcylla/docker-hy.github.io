@@ -3,4 +3,3 @@ _site/
 .jekyll-metadata
 .sass-cache
 .vscode
-node_modules

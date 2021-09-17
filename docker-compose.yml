@@ -1,7 +1,8 @@
 version: "3"
 services:
   coursematerial:
-    image: devopsdockeruh/coursepage
+    build: .
+    image: zylla/coursepage
     ports:
       - 4000:80
     container_name: coursematerial
